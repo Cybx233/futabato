@@ -57,4 +57,4 @@ Service worker，职责很轻：
 
 ## License
 
-贡献的代码按 [MIT](LICENSE) 协议授权。
+贡献的代码按 [GPL-3.0](LICENSE) 协议授权，与项目主体一致。
