@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "在公众号看漫画",
+  "name": "双叶妹妹",
   "version": "0.1.0",
   "description": "双页阅读，纯离线",
   "host_permissions": ["https://mp.weixin.qq.com/*"],
