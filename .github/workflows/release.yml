@@ -20,11 +20,11 @@ jobs:
       - name: 打包扩展
         run: |
           cd extension
-          zip -r ../weixinComic-v${{ steps.version.outputs.version }}.zip .
+          zip -r ../futabato-v${{ steps.version.outputs.version }}.zip .
 
       - name: 创建 Release
         uses: softprops/action-gh-release@v2
         with:
           name: v${{ steps.version.outputs.version }}
-          files: weixinComic-v${{ steps.version.outputs.version }}.zip
+          files: futabato-v${{ steps.version.outputs.version }}.zip
           generate_release_notes: true
