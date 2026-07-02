@@ -22,3 +22,19 @@ chrome.action.onClicked.addListener(async (tab) => {
     }, 3000);
   }
 });
+
+// Keyboard shortcut command
+chrome.commands.onCommand.addListener((command) => {
+  if (command !== 'toggle-reader') return;
+
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const tab = tabs[0];
+    if (!tab?.url?.includes('mp.weixin.qq.com/s')) return;
+
+    chrome.tabs.sendMessage(tab.id, { action: 'toggle' }).catch(() => {
+      chrome.action.setBadgeText({ text: '!' });
+      chrome.action.setBadgeBackgroundColor({ color: '#FFA500' });
+      setTimeout(() => chrome.action.setBadgeText({ text: '' }), 3000);
+    });
+  });
+});

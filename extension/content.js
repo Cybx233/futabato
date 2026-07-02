@@ -32,7 +32,7 @@
     TAIL_SCAN_COUNT: 5,
     TAIL_MIN_TOTAL: 10,
     PAGE_GAP: 0,
-    MAX_IMAGE_HEIGHT_VH: 92,
+    MAX_IMAGE_HEIGHT_VH: 85,
     BACKGROUND_COLOR: '#FFFFFF',
     DEFAULT_DIRECTION: 'rtl',
     HINT_AUTO_HIDE_MS: 3500,
@@ -67,6 +67,8 @@
       this.shadowRoot = null;
       this._boundKeydown = null;
       this._boundResize = null;
+      this._boundWheel = null;
+      this._wheelLocked = false;
       this._toastTimer = null;
     }
 
@@ -139,6 +141,9 @@
       self.isSingleMode = window.innerWidth < CONFIG.SINGLE_PAGE_BREAKPOINT;
       self.index = 0;
 
+      // 6b. Detect WeChat collection prev/next links (before rendering overlay)
+      self._detectCollection();
+
       // 7. Render overlay right away (images will load in progressively)
       self.renderOverlay();
       self.renderPage();
@@ -147,8 +152,10 @@
       // 8. Bind events
       self._boundKeydown = self._handleKeydown.bind(self);
       self._boundResize = self._handleResize.bind(self);
+      self._boundWheel = self._handleWheel.bind(self);
       window.addEventListener('keydown', self._boundKeydown);
       window.addEventListener('resize', self._boundResize);
+      window.addEventListener('wheel', self._boundWheel, { passive: false });
 
       // 9. Show hint
       self._showHint();
@@ -431,6 +438,57 @@
       e.stopPropagation();
     };
 
+    ReaderController.prototype._handleWheel = function (e) {
+      // Ignore tiny scrolls (trackpad jitter)
+      if (Math.abs(e.deltaY) < 10) return;
+
+      // Animation lock: if a page-turn animation is in progress, ignore further
+      // wheel events until it completes. This gives instant feedback on each
+      // deliberate wheel tick while preventing multi-page flips from momentum.
+      if (this._wheelLocked) return;
+      this._wheelLocked = true;
+
+      if (e.deltaY > 0) {
+        this.nextPage();
+      } else {
+        this.prevPage();
+      }
+
+      // Unlock after animation finishes (~180ms crossfade + 20ms buffer)
+      var self = this;
+      setTimeout(function () { self._wheelLocked = false; }, 200);
+
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    ReaderController.prototype._detectCollection = function () {
+      this.collectionPrev = null;
+      this.collectionNext = null;
+
+      // WeChat uses <span role="button"> for album navigation, NOT <a> tags.
+      // DOM structure (from real page):
+      //   .album_read_bd > .album_read_nav_prev (span) / .album_read_nav_next (span)
+      //     > .album_read_nav_inner > .album_read_nav_btn + .album_read_nav_title
+      var prevBtn = document.querySelector('.album_read_nav_prev');
+      var nextBtn = document.querySelector('.album_read_nav_next');
+
+      if (prevBtn) {
+        var titleEl = prevBtn.querySelector('.album_read_nav_title_inner');
+        this.collectionPrev = {
+          element: prevBtn,
+          title: titleEl ? titleEl.textContent.trim() : ''
+        };
+      }
+      if (nextBtn) {
+        var titleEl = nextBtn.querySelector('.album_read_nav_title_inner');
+        this.collectionNext = {
+          element: nextBtn,
+          title: titleEl ? titleEl.textContent.trim() : ''
+        };
+      }
+    };
+
     ReaderController.prototype._toggleBars = function () {
       this._barsVisible = !this._barsVisible;
       var topBar = this.shadowRoot ? this.shadowRoot.getElementById('topBar') : null;
@@ -443,6 +501,7 @@
       this.direction = (this.direction === 'rtl') ? 'ltr' : 'rtl';
       this.renderPage();
       this.updatePageIndicator();
+      this._updateCollectionButtons();
       // Update direction button text and title
       if (this.shadowRoot) {
         var btnDir = this.shadowRoot.getElementById('btnDir');
@@ -454,16 +513,15 @@
 
     ReaderController.prototype.toggleOffset = function () {
       this.offsetMode = !this.offsetMode;
+      var self = this;
 
       if (this.offsetMode) {
-        // Insert a blank placeholder at position 0
-        this._originalImages = this.images.slice(); // save for restore
+        this._originalImages = this.images.slice();
         var blank = { url: '', dataW: 0, isGif: false, originalImg: null,
           naturalW: 0, naturalH: 0, isPanorama: false, isStrip: false,
           loadFailed: false, _blank: true };
         this.images = [blank].concat(this.images);
       } else {
-        // Remove blank placeholder
         this.images = this._originalImages.slice();
         this._originalImages = [];
       }
@@ -471,6 +529,19 @@
       this.index = 0;
       this.renderPage();
       this.updatePageIndicator();
+      this._updateOffsetButton();
+    };
+
+    ReaderController.prototype._updateOffsetButton = function () {
+      if (!this.shadowRoot) return;
+      var btn = this.shadowRoot.getElementById('btnOffset');
+      if (btn) {
+        if (this.offsetMode) {
+          btn.classList.add('active');
+        } else {
+          btn.classList.remove('active');
+        }
+      }
     };
 
     ReaderController.prototype._handleResize = function () {
@@ -569,11 +640,16 @@
           '</div>' +
           // Bottom bar — hidden by default, toggle on click
           '<div class="bottom-bar" id="bottomBar">' +
-            '<span class="page-indicator" id="pageInd"></span>' +
-            '<div class="progress-track" id="progressTrack">' +
-              '<div class="progress-fill" id="progressFill"></div>' +
+            '<div class="bottom-bar-row">' +
+              '<div class="progress-track" id="progressTrack">' +
+                '<div class="progress-fill" id="progressFill"></div>' +
+              '</div>' +
             '</div>' +
-            '<span class="page-total" id="pageTotal"></span>' +
+            '<div class="bottom-bar-row bottom-bar-meta">' +
+              '<a class="collection-nav-btn" id="collectionBtnL" style="display:none;"></a>' +
+              '<span class="page-indicator" id="pageInd"></span>' +
+              '<a class="collection-nav-btn" id="collectionBtnR" style="display:none;"></a>' +
+            '</div>' +
           '</div>' +
           '<div class="toast" id="toast"></div>' +
           '<div class="hint-overlay" id="hint">' +
@@ -596,13 +672,14 @@
       root.getElementById('btnClose').addEventListener('click', function () { self.exit(); });
       root.getElementById('btnDir').addEventListener('click', function () { self.toggleDirection(); });
       root.getElementById('btnOffset').addEventListener('click', function () { self.toggleOffset(); });
+      self._updateOffsetButton();
 
       // Toggle bottom bar visibility on click anywhere in the reading stage
       var overlay = root.getElementById('readerOverlay');
       if (overlay) {
         overlay.addEventListener('click', function (e) {
-          // Don't toggle when clicking nav arrows or top-bar buttons
-          if (e.target.closest('.arrow-btn') || e.target.closest('.top-bar-btn') || e.target.closest('.click-zone')) return;
+          // Don't toggle when clicking nav arrows, top-bar buttons, or collection nav
+          if (e.target.closest('.arrow-btn') || e.target.closest('.top-bar-btn') || e.target.closest('.click-zone') || e.target.closest('.collection-nav-btn')) return;
           self._toggleBars();
         });
       }
@@ -621,6 +698,65 @@
       root.getElementById('btnWarnClose').addEventListener('click', function () {
         root.getElementById('stripWarn').style.display = 'none';
       });
+
+      // Collection prev/next nav buttons — direction-aware placement
+      self._updateCollectionButtons();
+
+      // Bind collection nav via the helper method (re-binds on direction toggle)
+      root.getElementById('collectionBtnL').addEventListener('click', makeNavHandler('L'));
+      root.getElementById('collectionBtnR').addEventListener('click', makeNavHandler('R'));
+    };
+
+    // Helper: create a click handler for collection nav buttons that references
+    // the current collection data at click time (not at bind time).
+    function makeNavHandler(side) {
+      return function (e) {
+        e.stopPropagation();
+        var info = this._colNavData && this._colNavData[side];
+        if (info && info.element) info.element.click();
+      };
+    }
+
+    ReaderController.prototype._updateCollectionButtons = function () {
+      if (!this.shadowRoot) return;
+      var btnL = this.shadowRoot.getElementById('collectionBtnL');
+      var btnR = this.shadowRoot.getElementById('collectionBtnR');
+      if (!btnL || !btnR) return;
+
+      // Clear
+      btnL.style.display = 'none'; btnL.textContent = '';
+      btnR.style.display = 'none'; btnR.textContent = '';
+      this._colNavData = { L: null, R: null };
+
+      if (this.direction === 'rtl') {
+        // RTL: next on the left, prev on the right
+        if (this.collectionNext) {
+          btnL.style.display = '';
+          btnL.textContent = '下一篇';
+          btnL.title = '下一篇' + (this.collectionNext.title ? '：' + this.collectionNext.title : '');
+          this._colNavData.L = this.collectionNext;
+        }
+        if (this.collectionPrev) {
+          btnR.style.display = '';
+          btnR.textContent = '上一篇';
+          btnR.title = '上一篇' + (this.collectionPrev.title ? '：' + this.collectionPrev.title : '');
+          this._colNavData.R = this.collectionPrev;
+        }
+      } else {
+        // LTR: prev on the left, next on the right
+        if (this.collectionPrev) {
+          btnL.style.display = '';
+          btnL.textContent = '上一篇';
+          btnL.title = '上一篇' + (this.collectionPrev.title ? '：' + this.collectionPrev.title : '');
+          this._colNavData.L = this.collectionPrev;
+        }
+        if (this.collectionNext) {
+          btnR.style.display = '';
+          btnR.textContent = '下一篇';
+          btnR.title = '下一篇' + (this.collectionNext.title ? '：' + this.collectionNext.title : '');
+          this._colNavData.R = this.collectionNext;
+        }
+      }
     };
 
     ReaderController.prototype.renderPage = function (direction) {
@@ -765,26 +901,12 @@
       var totalGroups = this.isSingleMode ? totalPages : Math.ceil(totalPages / 2);
       var currentGroup = this.isSingleMode ? (this.index + 1) : (Math.floor(this.index / 2) + 1);
 
-      var pageLabel;
-      if (this.isSingleMode) {
-        pageLabel = '第 ' + (this.index + 1) + ' 页';
-      } else {
-        var right = this.index + 1;
-        var left = this.index + 2;
-        if (left <= totalPages) {
-          pageLabel = '第 ' + right + '-' + left + ' 页';
-        } else {
-          pageLabel = '第 ' + right + ' 页';
-        }
-      }
-
-      indicator.textContent = pageLabel + ' / 共 ' + totalPages + ' 页 (第 ' + currentGroup + '/' + totalGroups + ' 组)';
+      indicator.textContent = currentGroup + ' / ' + totalGroups;
 
       // Update progress bar (direction-aware)
       var track = this.shadowRoot.getElementById('progressTrack');
       var fill = this.shadowRoot.getElementById('progressFill');
-      var total = this.shadowRoot.getElementById('pageTotal');
-      if (track && fill && total) {
+      if (track && fill) {
         var pct = totalGroups > 1 ? ((currentGroup - 1) / (totalGroups - 1)) * 100 : 0;
         if (this.direction === 'rtl') {
           // RTL: progress goes from right to left — fill from the right side
@@ -797,7 +919,6 @@
           fill.style.right = 'auto';
           fill.style.width = pct + '%';
         }
-        total.textContent = '';
       }
     };
 
@@ -880,6 +1001,10 @@
         window.removeEventListener('resize', this._boundResize);
         this._boundResize = null;
       }
+      if (this._boundWheel) {
+        window.removeEventListener('wheel', this._boundWheel);
+        this._boundWheel = null;
+      }
 
       // Restore body scroll
       document.body.style.overflow = this.originalOverflow || '';
@@ -916,7 +1041,7 @@
       var HI = '#3D3C38';                  // highlight/hover
       var LO = '#C5C3BB';                  // low-key / arrows
       var PROG_BG = '#D5D2C8';             // progress track
-      var PROG_FILL = '#B0ADA3';           // progress fill
+      var PROG_FILL = '#86C166';           // progress fill
       var TRANS = '0.18s ease-out';
 
       return [
@@ -953,17 +1078,18 @@
         // ---- Top bar buttons ----
         '.top-bar-btn {',
         '  display:flex;align-items:center;justify-content:center;',
-        '  height:26px;padding:0 8px;border:none;border-radius:4px;',
+        '  height:26px;padding:0 8px;border:1px solid transparent;border-radius:4px;',
         '  background:transparent;color:' + TX + ';cursor:pointer;',
         '  font-size:12px;white-space:nowrap;',
-        '  transition:color ' + TRANS + ',background ' + TRANS + ';',
+        '  transition:color ' + TRANS + ',border-color ' + TRANS + ';',
         '}',
-        '.top-bar-btn:hover { color:' + HI + ';background:rgba(0,0,0,0.04); }',
+        '.top-bar-btn:hover { color:' + HI + ';border-color:' + PROG_FILL + '; }',
+        '.top-bar-btn.active { border-color:' + PROG_FILL + ';color:' + HI + '; }',
 
         // ---- Three-layer structure: top-bar / reading-stage / bottom-bar ----
         '.reading-stage {',
         '  flex:1;display:flex;align-items:center;justify-content:center;',
-        '  min-height:0;position:relative;',
+        '  min-height:0;position:relative;overflow:hidden;',
         '}',
 
         // ---- Viewport sits inside reading-stage ----
@@ -1026,17 +1152,32 @@
         '.bottom-bar {',
         '  display:flex;flex-direction:column;align-items:center;',
         '  justify-content:center;gap:6px;',
-        '  padding:8px 60px 12px;flex-shrink:0;',
+        '  padding:8px 32px 12px;flex-shrink:0;',
         '  opacity:0;transform:translateY(8px);',
         '  transition:opacity ' + TRANS + ',transform ' + TRANS + ';',
         '  pointer-events:none;',
         '}',
         '.bottom-bar.bottom-visible {',
-        '  opacity:1;transform:translateY(0);',
+        '  opacity:1;transform:translateY(0);pointer-events:auto;',
         '}',
         '.bottom-bar-row {',
-        '  display:flex;align-items:center;justify-content:center;gap:12px;',
+        '  display:flex;align-items:center;justify-content:center;gap:10px;',
         '  width:100%;',
+        '}',
+        '.bottom-bar-meta {',
+        '  margin-top:4px;',
+        '  justify-content:space-between;',
+        '  max-width:1320px;',
+        '  width:100%;',
+        '}',
+        '.collection-nav-btn {',
+        '  font-size:11px;color:' + TX + ';text-decoration:none;cursor:pointer;',
+        '  padding:2px 6px;border-radius:3px;flex-shrink:0;white-space:nowrap;',
+        '  transition:color ' + TRANS + ',background ' + TRANS + ';',
+        '  pointer-events:auto;',
+        '}',
+        '.collection-nav-btn:hover {',
+        '  color:' + HI + ';background:rgba(0,0,0,0.04);',
         '}',
         '.page-indicator {',
         '  font-size:11px;color:' + TX + ';white-space:nowrap;',
@@ -1047,7 +1188,7 @@
         '  font-variant-numeric:tabular-nums;',
         '}',
         '.progress-track {',
-        '  width:100%;max-width:500px;height:2px;position:relative;',
+        '  width:100%;max-width:1320px;height:4px;position:relative;',
         '  background:' + PROG_BG + ';border-radius:1px;overflow:hidden;',
         '}',
         '.progress-fill {',

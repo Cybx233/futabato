@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "双叶妹妹",
-  "version": "0.1.0",
-  "description": "双页阅读，纯离线",
+  "version": "0.2.0",
+  "description": "把公众号文章中的图片，还原成接近纸质书的左右双页阅读模式。",
   "host_permissions": ["https://mp.weixin.qq.com/*"],
   "action": {
     "default_title": "切换漫画阅读模式",
@@ -26,5 +26,14 @@
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
+  },
+  "commands": {
+    "toggle-reader": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+Y"
+      },
+      "description": "切换双页阅读模式"
+    }
   }
 }
