@@ -32,7 +32,7 @@
     TAIL_SCAN_COUNT: 5,
     TAIL_MIN_TOTAL: 10,
     PAGE_GAP: 0,
-    MAX_IMAGE_HEIGHT_VH: 85,
+    MAX_IMAGE_HEIGHT_VH: 92,
     BACKGROUND_COLOR: '#FFFFFF',
     DEFAULT_DIRECTION: 'rtl',
     HINT_AUTO_HIDE_MS: 3500,
@@ -506,7 +506,9 @@
       if (this.shadowRoot) {
         var btnDir = this.shadowRoot.getElementById('btnDir');
         if (btnDir) {
-          btnDir.title = '切换阅读方向 (当前: ' + (this.direction === 'rtl' ? '日漫' : '欧美') + ')';
+          var newLabel = this.direction === 'rtl' ? '日漫' : '欧美';
+          btnDir.textContent = newLabel;
+          btnDir.title = '切换阅读方向 (当前: ' + newLabel + ')';
         }
       }
     };
@@ -607,7 +609,7 @@
       self.shadowRoot.appendChild(styleEl);
 
       // Build DOM
-      var dirLabel = '顺序切换';
+      var dirLabel = self.direction === 'rtl' ? '日漫' : '欧美';
       var dirTitle = self.direction === 'rtl' ? '日漫' : '欧美';
       var titleSafe = self._escapeHtml(document.title || '公众号文章');
 
@@ -616,7 +618,7 @@
           // Top bar: close(left) | title(center) | tools(right)
           '<div class="top-bar" id="topBar">' +
             '<div class="top-bar-left">' +
-              '<button class="top-bar-btn" id="btnClose" title="关闭阅读模式">返回/esc</button>' +
+              '<button class="top-bar-btn" id="btnClose" title="关闭阅读模式 (Esc)">← 返回</button>' +
             '</div>' +
             '<span class="top-bar-title" title="' + titleSafe + '">' + titleSafe + '</span>' +
             '<div class="top-bar-right">' +
@@ -1054,16 +1056,21 @@
         '  user-select:none;-webkit-user-select:none;',
         '}',
 
-        // ---- Top bar: hidden by default, toggle with click ----
+        // ---- Top bar: absolute overlay, hidden by default, toggle with click ----
         '.top-bar {',
         '  display:flex;align-items:center;justify-content:space-between;',
-        '  height:36px;padding:0 16px;flex-shrink:0;',
-        '  background:transparent;',
-        '  opacity:0;transform:translateY(-8px);',
-        '  transition:opacity ' + TRANS + ',transform ' + TRANS + ';',
+        '  position:absolute;top:0;left:0;right:0;z-index:5;',
+        '  height:38px;padding:0 12px;',
+        '  background:rgba(255,255,255,0);',
+        '  opacity:0;transform:translateY(-8px);pointer-events:none;',
+        '  transition:opacity ' + TRANS + ',transform ' + TRANS + ',background ' + TRANS + ';',
         '}',
         '.top-bar.top-visible {',
-        '  opacity:1;transform:translateY(0);',
+        '  opacity:1;transform:translateY(0);pointer-events:auto;',
+        '  background:rgba(255,255,255,0.88);',
+        '  backdrop-filter:blur(10px);',
+        '  -webkit-backdrop-filter:blur(10px);',
+        '  border-bottom:1px solid rgba(0,0,0,0.06);',
         '}',
         '.top-bar-left, .top-bar-right {',
         '  flex:1;display:flex;align-items:center;gap:6px;',
@@ -1079,13 +1086,14 @@
         // ---- Top bar buttons ----
         '.top-bar-btn {',
         '  display:flex;align-items:center;justify-content:center;',
-        '  height:26px;padding:0 8px;border:1px solid transparent;border-radius:4px;',
+        '  height:28px;padding:0 10px;border:none;border-radius:6px;',
         '  background:transparent;color:' + TX + ';cursor:pointer;',
         '  font-size:12px;white-space:nowrap;',
-        '  transition:color ' + TRANS + ',border-color ' + TRANS + ';',
+        '  transition:background 0.15s,color 0.15s;',
         '}',
-        '.top-bar-btn:hover { color:' + HI + ';border-color:' + PROG_FILL + '; }',
-        '.top-bar-btn.active { border-color:' + PROG_FILL + ';color:' + HI + '; }',
+        '.top-bar-btn:hover { background:rgba(0,0,0,0.05);color:' + HI + '; }',
+        '.top-bar-btn.active { background:rgba(134,193,102,0.12);color:#4A8A2E; }',
+        '.top-bar-btn.active:hover { background:rgba(134,193,102,0.20);color:#3A7020; }',
 
         // ---- Three-layer structure: top-bar / reading-stage / bottom-bar ----
         '.reading-stage {',
@@ -1097,7 +1105,7 @@
         '.viewport {',
         '  display:flex;align-items:center;justify-content:center;',
         '  position:relative;overflow:visible;',
-        '  padding:16px 32px;',
+        '  padding:8px 32px;',
         '}',
         '.click-zone {',
         '  position:absolute;top:0;bottom:0;width:50%;',
@@ -1149,11 +1157,12 @@
         '.arrow-btn.left { left:12px; }',
         '.arrow-btn.right { right:12px; }',
 
-        // ---- Bottom bar — hidden, toggle with click ----
+        // ---- Bottom bar — absolute overlay, hidden, toggle with click ----
         '.bottom-bar {',
         '  display:flex;flex-direction:column;align-items:center;',
         '  justify-content:center;gap:6px;',
-        '  padding:8px 32px 12px;flex-shrink:0;',
+        '  position:absolute;bottom:0;left:0;right:0;z-index:5;',
+        '  padding:8px 32px 12px;',
         '  opacity:0;transform:translateY(8px);',
         '  transition:opacity ' + TRANS + ',transform ' + TRANS + ';',
         '  pointer-events:none;',
